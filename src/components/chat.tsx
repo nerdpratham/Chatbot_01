@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { parseReply, type Contact } from "@/lib/contact";
 import { getReply, type Message } from "@/lib/get-reply";
 
 const SUGGESTIONS = [
-  "Explain how React hooks work",
-  "Write a haiku about the ocean",
-  "Help me plan a weekend trip",
-  "What can you help me with?",
+  "What does SixDX do?",
+  "What is the Reality Twin?",
+  "Tell me about the RAYX case study",
+  "How much would a digital twin of my plant cost?",
 ];
 
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [contact, setContact] = useState<Contact | null>(null);
   const [status, setStatus] = useState<"idle" | "waiting" | "streaming">(
     "idle",
   );
@@ -76,7 +78,9 @@ export function Chat() {
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: "Sorry, something went wrong. Please try again.",
+            content: `Sorry, something went wrong. ${
+              error instanceof Error ? error.message : "Please try again."
+            }`,
           },
         ]);
         console.error(error);
@@ -104,7 +108,7 @@ export function Chat() {
       <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <div className="flex items-center gap-2">
           <BotAvatar />
-          <h1 className="text-base font-semibold">Chatbot</h1>
+          <h1 className="text-base font-semibold">SixDX Assistant</h1>
         </div>
         <button
           type="button"
@@ -121,7 +125,18 @@ export function Chat() {
           {messages.length === 0 ? (
             <EmptyState onPick={send} />
           ) : (
-            messages.map((m) => <MessageBubble key={m.id} message={m} />)
+            messages.map((m, i) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                question={
+                  messages.slice(0, i).findLast((p) => p.role === "user")
+                    ?.content ?? ""
+                }
+                contact={contact}
+                onContactSaved={setContact}
+              />
+            ))
           )}
           {status === "waiting" && <TypingIndicator />}
           <div ref={bottomRef} />
@@ -146,7 +161,7 @@ export function Chat() {
                 send(input);
               }
             }}
-            placeholder="Message Chatbot…"
+            placeholder="Ask about SixDX…"
             rows={1}
             autoFocus
             className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] leading-6 outline-none placeholder:text-zinc-400"
@@ -189,7 +204,17 @@ export function Chat() {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  question,
+  contact,
+  onContactSaved,
+}: {
+  message: Message;
+  question: string;
+  contact: Contact | null;
+  onContactSaved: (contact: Contact) => void;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -200,13 +225,109 @@ function MessageBubble({ message }: { message: Message }) {
     );
   }
 
+  const { text, wantsContact } = parseReply(message.content);
+
   return (
     <div className="flex gap-3">
       <BotAvatar />
-      <div className="min-w-0 flex-1 whitespace-pre-wrap pt-1 text-[15px] leading-6">
-        {message.content}
+      <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
+        {text && (
+          <div className="whitespace-pre-wrap text-[15px] leading-6">{text}</div>
+        )}
+        {wantsContact && (
+          <ContactForm
+            question={question}
+            saved={contact}
+            onSaved={onContactSaved}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+function ContactForm({
+  question,
+  saved,
+  onSaved,
+}: {
+  question: string;
+  saved: Contact | null;
+  onSaved: (contact: Contact) => void;
+}) {
+  const [name, setName] = useState(saved?.name ?? "");
+  const [phone, setPhone] = useState(saved?.phone ?? "");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [error, setError] = useState("");
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setState("sending");
+    setError("");
+    try {
+      const res = await fetch("/api/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, question }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Couldn't send your details.");
+      onSaved({ name: name.trim(), phone: phone.trim() });
+      setState("sent");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send your details.");
+      setState("idle");
+    }
+  }
+
+  if (state === "sent") {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+        Thanks, {name.trim()}. Someone from our team will contact you at{" "}
+        {phone.trim()} soon.
+      </div>
+    );
+  }
+
+  const inputClass =
+    "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-zinc-400";
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex max-w-md flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800"
+    >
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Leave your name and phone number and our team will get back to you.
+      </p>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Your name"
+        autoComplete="name"
+        maxLength={100}
+        required
+        className={inputClass}
+      />
+      <input
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="Phone number"
+        type="tel"
+        autoComplete="tel"
+        maxLength={25}
+        required
+        className={inputClass}
+      />
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      <button
+        type="submit"
+        disabled={state === "sending"}
+        className="self-start rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+      >
+        {state === "sending" ? "Sending…" : "Send"}
+      </button>
+    </form>
   );
 }
 

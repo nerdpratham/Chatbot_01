@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chatbot",
-  description: "A simple AI chatbot",
+  title: "SixDX Assistant",
+  description: "Ask questions about SixDX and SixD Engineering",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
