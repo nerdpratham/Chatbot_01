@@ -1,0 +1,9 @@
+node_modules
+dist
+
+# secrets
+.env
+!.env.example
+
+# saved chatbot leads (contain personal details)
+data
